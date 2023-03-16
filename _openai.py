@@ -20,8 +20,8 @@ openai.api_key = config["MAIN"]["OPENAI_TOKEN"]
 def make_completion(prompt, asst=None, context=None, chat_model=CHAT_MODEL):
     asst = "You are a helpful assistant." if asst is None else asst
     messages=[
-        {"role": "system", "content": asst},
-        {"role": "user", "content": prompt}]
+        {"role": "system", "content": asst}
+        ]
     
     if context is not None:
         for msg in context:
@@ -30,7 +30,7 @@ def make_completion(prompt, asst=None, context=None, chat_model=CHAT_MODEL):
                     and msg.get("content", None) is not None:
                 messages.append(msg)
 
-        messages += context
+    messages += [{"role": "user", "content": prompt}]
 
     return dict(model=chat_model, messages=messages)
 
@@ -38,6 +38,10 @@ def make_completion(prompt, asst=None, context=None, chat_model=CHAT_MODEL):
 def get_response(completion):
     resp = openai.ChatCompletion.create(**completion)
     return resp['choices'][0]['message']['content']
+
+
+def chatgpt_get_response(completion):
+    return get_response(completion)
 
 
 def convert_to_wav(audio):
@@ -65,8 +69,6 @@ def clean_audio_cache(audio_path=AUDIO_CACHE):
             os.remove(os.path.join(audio_path, file))
         except:
             pass
-
-
 
 def transcribe_audio(audio):
     audio.seek(0)

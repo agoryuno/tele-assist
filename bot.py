@@ -1,33 +1,37 @@
 import os
 import configparser
 import asyncio
-from io import BytesIO
+
 from datetime import datetime
 
 import logging
+
 from telegram import Update, InlineKeyboardMarkup
 from telegram import InlineKeyboardButton, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from telegram.ext import filters, MessageHandler, PicklePersistence
-from telegram.ext import ConversationHandler
+from telegram.ext import ConversationHandler, CallbackQueryHandler
 
-from _openai import make_completion, get_response, transcribe_audio
-from _openai import clean_audio_cache
+from _openai import make_completion
+from _openai import clean_audio_cache, chatgpt_get_response
 
-
-# This is a stub for future gettext() i18n support
-def _(txt):
-    return txt
+from utils import get_config, _
+from voice_notes import inline_button, process_voice
 
 
-config = configparser.ConfigParser()
-config.read('config.ini')
+
+config = get_config()
 
 PERSIST_FILE = config["MAIN"]["PERSIST_FILE"]
 
 BOT_TOKEN = config["MAIN"]["BOT_TOKEN"]
 
 WAITING, END = 1, 2
+
+MIN_TEXT_LEN = 150
+
+GPT_VOICE_CORRECT = config["CHAT_CONSTANTS"]["GPT_VOICE_CORRECT"]
+
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -132,7 +136,7 @@ async def chat_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = make_completion(update.message.text, 
                           context.user_data.get("gpt_role", None), 
                           context.user_data.get("gpt_context", None))
-    response_txt = get_response(msg)
+    response_txt = chatgpt_get_response(msg)
     await context.bot.send_message(chat_id=update.effective_chat.id, 
                                    text=response_txt,
                                    reply_markup=reply_markup)
@@ -145,21 +149,14 @@ async def gpt_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                    text=_(f"Chat GPT role set to:\n {update.message.text}"))
 
 
-async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    file_id = update.message.voice.file_id
-    new_file = await context.bot.get_file(file_id)
-    with BytesIO() as obuff:
-        await new_file.download_to_memory(out=obuff)
-        result = transcribe_audio (obuff)["text"]
-    await context.bot.send_message(chat_id=update.effective_chat.id,
-                                   text=result)
+
+
+
 
 
 async def start_gpt_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.delete_message(chat_id=update.effective_chat.id, 
                          message_id=update.effective_message.message_id)
-    #await context.bot.send_message(chat_id=update.effective_chat.id,
-    #                               text="/startgpt")
     await start_gpt(update, context)
 
 
@@ -185,20 +182,25 @@ if __name__ == '__main__':
     application = ApplicationBuilder().persistence(persistence). \
         token(BOT_TOKEN).post_init(startup).build()
 
+    inline_handler = CallbackQueryHandler(inline_button)
+
     start_handler = CommandHandler("start", start)
 
     endgpt_handler = CommandHandler("endgpt", end_gpt)
     startgpt_handler = CommandHandler("startgpt", start_gpt)
     stopgpt_handler = MessageHandler(filters.Regex(r"^\<Stop ChatGPT\>$"), end_gpt)
     startgpt2_handler = MessageHandler(filters.Regex(r"^\<Start ChatGPT\>$"), start_gpt)
+    gptmessage_handler = MessageHandler(filters.TEXT, chat_gpt)
 
     application.add_handler(start_handler)
     application.add_handler(endgpt_handler)
     application.add_handler(stopgpt_handler)
     application.add_handler(startgpt_handler)
     application.add_handler(startgpt2_handler)
+    application.add_handler(gptmessage_handler)
 
     voice_handler = MessageHandler(filters.VOICE, process_voice)
     application.add_handler(voice_handler)
+    application.add_handler(inline_handler)
     
     application.run_polling()
