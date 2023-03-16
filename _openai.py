@@ -1,11 +1,18 @@
 import configparser
+import io
+import uuid
+import os
 
 import openai
+
+import soundfile as sf
+
 
 config = configparser.ConfigParser()
 config.read('config.ini')
 
 CHAT_MODEL = config["MAIN"]["CHAT_MODEL"]
+AUDIO_CACHE = ".audio"
 
 openai.api_key = config["MAIN"]["OPENAI_TOKEN"]
 
@@ -31,3 +38,46 @@ def make_completion(prompt, asst=None, context=None, chat_model=CHAT_MODEL):
 def get_response(completion):
     resp = openai.ChatCompletion.create(**completion)
     return resp['choices'][0]['message']['content']
+
+
+def convert_to_wav(audio):
+    data, samplerate = sf.read(audio)
+    wav_buffer = io.BytesIO()
+    with sf.SoundFile(wav_buffer, mode='w',
+                      channels=1, format='WAV', 
+                      samplerate=samplerate,
+                      subtype='PCM_16') as wav_file:
+        wav_file.write(data)
+
+    return wav_buffer
+
+
+def save_to_wav(audio, fname):
+    data, samplerate = sf.read(audio)
+    sf.write(fname, data, samplerate)
+
+
+def clean_audio_cache(audio_path=AUDIO_CACHE):
+    # delete all files in directory
+    # `audio_path`
+    for file in os.listdir(audio_path):
+        try:
+            os.remove(os.path.join(audio_path, file))
+        except:
+            pass
+
+
+
+def transcribe_audio(audio):
+    audio.seek(0)
+    fname = os.path.join(AUDIO_CACHE, f".{str(uuid.uuid4())}.wav")
+    save_to_wav(audio, fname)
+    
+    with open(fname, "rb") as f:
+        transcript = openai.Audio.transcribe("whisper-1", f)
+    
+    try:
+        os.remove(fname)
+    except:
+        pass
+    return transcript
