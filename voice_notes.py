@@ -9,12 +9,15 @@ from _openai import make_completion, transcribe_audio
 from _openai import chatgpt_get_response
 
 from utils import get_config, _
+from cache import save_message, update_message, get_redis_client
+
 
 config = get_config()
 
-GPT_VOICE_CORRECT = config["VOICE_NOTES"]["GPT_VOICE_CORRECT"]
-MIN_TEXT_LEN = config["VOICE_NOTES"]["MIN_TEXT_LEN"]
+GPT_VOICE_CORRECT = 1
+GPT_VOICE_ACCEPT = 2
 
+MIN_TEXT_LEN = int(config["VOICE_NOTES"]["MIN_TEXT_LEN"])
 
 
 def gpt_correct_template(msg: str):
@@ -31,7 +34,10 @@ def gpt_correct_template(msg: str):
 
 async def inline_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query_msg = update.callback_query.data
+    try:
+        query_msg = int(update.callback_query.data)
+    except ValueError:
+        print ("Unknown query message: ", update.callback_query.data, type(update.callback_query.data))
     
     if query_msg == GPT_VOICE_CORRECT:
         text_msg = query.message.text
@@ -39,14 +45,21 @@ async def inline_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         correction = chatgpt_get_response(comp)
         
         await query.edit_message_text(text=correction)
-        #await query.edit_message_reply_markup(reply_markup=None)
-        await query.answer()
+        update_message(get_redis_client(),
+            update.effective_chat.id, 
+            query.message.message_id, 
+            correction)
+
+    elif query_msg == GPT_VOICE_ACCEPT:
+        await query.edit_message_reply_markup(reply_markup=None)  
+    await query.answer()
 
 
 def make_correct_keyboard():
     keyboard = [
         [
-            InlineKeyboardButton(_("Correct"), callback_data=GPT_VOICE_CORRECT),
+            InlineKeyboardButton(_("\u270f Edit"), callback_data=GPT_VOICE_CORRECT),
+            InlineKeyboardButton(("\u2705 Accept"), callback_data=GPT_VOICE_ACCEPT)
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -79,9 +92,14 @@ async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(result) >= min_text_len:
         reply_markup = make_correct_keyboard()
 
-    await context.bot.send_message(chat_id=update.effective_chat.id,
+    msg = await context.bot.send_message(chat_id=update.effective_chat.id,
                                    text=f'"{result}"',
                                    reply_markup=reply_markup,)
+    if msg is not None:
+        save_message(get_redis_client(), 
+                     update.effective_chat.id, 
+                     msg.message_id, 
+                     result)
     
     await context.bot.delete_message(chat_id=update.effective_chat.id,
                                message_id=update.message.message_id)

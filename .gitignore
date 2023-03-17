@@ -1,3 +1,4 @@
 config.ini
 .bot_data
 __pycache__/*
+redis/redis.conf

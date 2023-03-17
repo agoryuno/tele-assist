@@ -17,7 +17,7 @@ from _openai import clean_audio_cache, chatgpt_get_response
 
 from utils import get_config, _
 from voice_notes import inline_button, process_voice
-
+from cache import get_redis_client
 
 
 config = get_config()
@@ -29,8 +29,6 @@ BOT_TOKEN = config["MAIN"]["BOT_TOKEN"]
 WAITING, END = 1, 2
 
 MIN_TEXT_LEN = 150
-
-GPT_VOICE_CORRECT = config["CHAT_CONSTANTS"]["GPT_VOICE_CORRECT"]
 
 
 logging.basicConfig(
@@ -149,11 +147,6 @@ async def gpt_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                    text=_(f"Chat GPT role set to:\n {update.message.text}"))
 
 
-
-
-
-
-
 async def start_gpt_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.delete_message(chat_id=update.effective_chat.id, 
                          message_id=update.effective_message.message_id)
@@ -177,6 +170,8 @@ if __name__ == '__main__':
         os.remove(PERSIST_FILE)
     except FileNotFoundError:
         pass
+
+    cache = get_redis_client()
 
     persistence = PicklePersistence(PERSIST_FILE)
     application = ApplicationBuilder().persistence(persistence). \
