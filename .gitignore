@@ -2,3 +2,6 @@ config.ini
 .bot_data
 __pycache__/*
 redis/redis.conf
+.gitignore
+notebooks/.ipynb_checkpoints/Untitled-checkpoint.ipynb
+notebooks/Untitled.ipynb
