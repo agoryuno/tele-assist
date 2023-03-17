@@ -70,6 +70,7 @@ def clean_audio_cache(audio_path=AUDIO_CACHE):
         except:
             pass
 
+
 def transcribe_audio(audio):
     audio.seek(0)
     fname = os.path.join(AUDIO_CACHE, f".{str(uuid.uuid4())}.wav")
@@ -83,3 +84,9 @@ def transcribe_audio(audio):
     except:
         pass
     return transcript
+
+
+def embed_text(text):
+    return openai.Embedding.create(input=text,
+                            model="text-embedding-ada-002",
+                            )["data"][0]['embedding']

@@ -17,7 +17,7 @@ from _openai import clean_audio_cache, chatgpt_get_response
 
 from utils import get_config, _
 from voice_notes import inline_button, process_voice
-from cache import get_redis_client
+from cache import get_redis_client, create_index
 
 
 config = get_config()
@@ -80,7 +80,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, 
                                    text=_("Hi! I am a personal assitant bot. I "
                                    "keep records for you and help you interact "
-                                   "with AIs."), reply_markup=reply_markup)
+                                   "with the world through AIs."), reply_markup=reply_markup)
 
 
 async def start_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,7 +171,8 @@ if __name__ == '__main__':
     except FileNotFoundError:
         pass
 
-    cache = get_redis_client()
+    redis_client = get_redis_client()
+    create_index(redis_client)
 
     persistence = PicklePersistence(PERSIST_FILE)
     application = ApplicationBuilder().persistence(persistence). \

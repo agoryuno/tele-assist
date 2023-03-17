@@ -1,8 +1,9 @@
 # Use the official Redis image as a base
-FROM redis/redis-stack-server:latest
+FROM redislabs/redisearch:latest
 
 # Copy a custom Redis configuration file that loads the Redisearch module
 COPY redis.conf /usr/local/etc/redis/redis.conf
+COPY redis.conf /redis.conf
 
 # Expose Redis port
 EXPOSE 6379

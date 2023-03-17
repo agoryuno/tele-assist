@@ -2,14 +2,16 @@ from io import BytesIO
 
 from telegram import Update, InlineKeyboardMarkup
 from telegram import InlineKeyboardButton
-from telegram.ext import ContextTypes
-from telegram.error import TimedOut
+from telegram.ext import ContextTypes, CallbackContext
+from telegram.error import TimedOut, BadRequest
 
 from _openai import make_completion, transcribe_audio
 from _openai import chatgpt_get_response
 
 from utils import get_config, _
 from cache import save_message, update_message, get_redis_client
+from cache import wait_for_approval
+from timer import add_timer
 
 
 config = get_config()
@@ -18,6 +20,7 @@ GPT_VOICE_CORRECT = 1
 GPT_VOICE_ACCEPT = 2
 
 MIN_TEXT_LEN = int(config["VOICE_NOTES"]["MIN_TEXT_LEN"])
+APPROVE_TIMEOUT = int (config["VOICE_NOTES"]["APPROVE_TIMEOUT"])
 
 
 def gpt_correct_template(msg: str):
@@ -44,11 +47,12 @@ async def inline_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         comp = gpt_correct_template(text_msg)
         correction = chatgpt_get_response(comp)
         
-        await query.edit_message_text(text=correction)
+        print ("Correction", update.effective_user.id)
         update_message(get_redis_client(),
             update.effective_chat.id, 
             query.message.message_id, 
             correction)
+        await query.edit_message_text(text=correction)
 
     elif query_msg == GPT_VOICE_ACCEPT:
         await query.edit_message_reply_markup(reply_markup=None)  
@@ -65,13 +69,25 @@ def make_correct_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+async def remove_approve_buttons(context: CallbackContext):
+    data = context.job.data
+    chat_id = data["chat_id"]
+    message_id = data["message_id"]
+    try:
+        await context.bot.edit_message_reply_markup(chat_id=chat_id,
+                                                message_id=message_id,
+                                                reply_markup=None)
+    except BadRequest:
+        pass
+
+
 
 async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     min_text_len = MIN_TEXT_LEN
     file_id = update.message.voice.file_id
-    
+    print ("Voice message", update.effective_user.id)
     new_file = None
-    for i in range(5):
+    for _ in range(5):
         try:
             new_file = await context.bot.get_file(file_id)
         except TimedOut:
@@ -91,10 +107,23 @@ async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = None
     if len(result) >= min_text_len:
         reply_markup = make_correct_keyboard()
+        
 
     msg = await context.bot.send_message(chat_id=update.effective_chat.id,
                                    text=f'"{result}"',
                                    reply_markup=reply_markup,)
+    
+    if reply_markup is not None:
+        add_timer(update.effective_chat.id,
+                  update.effective_user.id,
+                  context,
+                  remove_approve_buttons,
+                  when=APPROVE_TIMEOUT,
+                  data={"message_id": msg.id,
+                        "chat_id": update.effective_chat.id,
+                        "user_id": update.effective_user.id}
+                  )
+    
     if msg is not None:
         save_message(get_redis_client(), 
                      update.effective_chat.id, 

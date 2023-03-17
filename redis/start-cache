@@ -1,0 +1,3 @@
+#!/bin/bash
+
+docker run  --name redis-tele-cache -v `pwd`/redis.conf:/redis.conf -v redis-data:/data -p 6379:6379 -d redis-tele-cache
