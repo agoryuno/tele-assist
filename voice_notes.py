@@ -51,7 +51,10 @@ async def inline_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         embedding = await embed_message(correction)
 
         update_embedding(get_redis_client(),
-                         update.effective_user.id,)
+                         update.effective_user.id,
+                         query.message.message_id,
+                         correction,
+                         embedding)
 
         update_message(get_redis_client(),
             update.effective_chat.id, 
@@ -161,6 +164,7 @@ async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      embedding)
         update_message_id(client,
                           key,
+                          update.effective_user.id,
                           msg.message_id)
     
     await context.bot.delete_message(chat_id=update.effective_chat.id,

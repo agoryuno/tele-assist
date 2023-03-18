@@ -32,7 +32,7 @@ PREFIX = "message"
 
 
 def create_index(
-        client,
+        client: redis.Redis,
         index_name=INDEX_NAME, 
         embedding_dim=EMBEDDING_DIM, 
         distance_metric=DISTANCE_METRIC,
@@ -114,7 +114,7 @@ def get_redis_client(host=HOST, port=PORT, password=PASSWORD):
     return redis_client
 
 
-def _record_embedding(client, 
+def _record_embedding(client: redis.Redis, 
                       user_id, 
                       message, 
                       message_embedding,
@@ -133,24 +133,15 @@ def _record_embedding(client,
     return key, msg_hash
 
 
-def _update_embedding(client,
-                      user_id,
-                      message_id,
-                      message,
-                      message_embedding,
-                      prefix=PREFIX):
-    message_embedding = np.array(message_embedding, dtype=np.float32).tobytes()
-    key = f"{prefix}:<{user_id}><{key_id}>"
-    client.hset(key, mapping={"message": message, "message_embedding": message_embedding})
-
 
 def _update_message_id(client, 
-                       #user_id, 
                        key,
+                       user_id,
                        message_id,  
-                       #prefix=PREFIX
                        ):
-    #key = f"{prefix}:<{user_id}><{key_id}>"
+    # save the user_id and message_id so we can easily find
+    # the message key later
+    client.set(f"user_id:<{user_id}>msg_id:<{message_id}>", key)
     client.hset(key, mapping={"message_id": int(message_id)})
 
 
@@ -163,11 +154,20 @@ def save_embedding(client, user_id, message_text, embedding):
 
 
 def update_embedding(client, user_id, message_id, message_text, embedding):
-    return _update_embedding(client, user_id, message_id, message_text, embedding)
+    """
+    Update the embedding record for the message after it was edited by the user
+    or automatic rewriting.
+    """
+    key = client.get(f"user_id:<{user_id}>msg_id:<{message_id}>")
+    mapping = {"message": message_text,
+               "message_embedding": np.array(embedding, dtype=np.float32).tobytes()}
+    # delete the record connecting the key to user_id and msg_id
+    client.delete(f"user_id:<{user_id}>msg_id:<{message_id}>")
+    client.hset(key, mapping=mapping)
 
 
-def update_message_id(client, key, message_id):
-    _update_message_id(client, key, message_id)
+def update_message_id(client, key, user_id, message_id):
+    _update_message_id(client, key, user_id, message_id)
 
 
 def save_message(client, user_id, message_id, message_text, embedding):
