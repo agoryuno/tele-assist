@@ -1,5 +1,5 @@
 from typing import List, Union
-
+from uuid import uuid4
 from datetime import datetime
 
 import numpy as np
@@ -9,10 +9,11 @@ from redis.commands.search.indexDefinition import (
     IndexDefinition,
     IndexType
 )
-from redis.commands.search.query import Query
+from redis.commands.search.query import Query, NumericFilter
 from redis.commands.search.field import (
     TextField,
-    VectorField
+    VectorField,
+    NumericField
 )
 
 from utils import get_config
@@ -42,8 +43,8 @@ def create_index(
     except:
         pass
     
-    user_id = TextField(name="user_id")
-    message_id = TextField(name="message_id")
+    user_id = NumericField(name="user_id")
+    message_id = NumericField(name="message_id")
     message = TextField(name="message")
     message_embedding = VectorField("message_embedding",
                                     "FLAT", {
@@ -53,8 +54,9 @@ def create_index(
                                         "INITIAL_CAP": 1000,
                                     }
     )
+    timestamp = NumericField(name="timestamp")
 
-    fields = [user_id, message_id, message, message_embedding]
+    fields = [user_id, message_id, message, message_embedding, timestamp]
 
     client.ft(index_name).create_index(
                         fields = fields,
@@ -65,27 +67,25 @@ def create_index(
 
 
 def search_redis(
-    redis_client: redis.Redis,
+    client: redis.Redis,
     user_id: Union[int, str],
-    user_query: str,
+    embedded_query: List,
     index_name: str = INDEX_NAME,
     vector_field: str = "message_embedding",
-    return_fields: list = ["message", "message_id", "user_id", "vector_score"],
+    return_fields: list = ["message", "message_id", "user_id", "vector_score", "timestamp"],
     hybrid_fields = "*",
     k: int = 20,
-    print_results: bool = False,
     ) -> List[dict]:
 
     # Creates embedding vector from user query
-    embedded_query = embed_text(user_query)
+    #embedded_query = embed_text(user_query)
 
-    user_id = str(user_id)
-
+    user_id = int(user_id)
     # Prepare the Query
     base_query = f'{hybrid_fields}=>[KNN {k} @{vector_field} $vector AS vector_score]'
     query = (
         Query(base_query)
-         .add_filter("user_id", user_id)
+         .add_filter(NumericFilter("user_id", user_id, user_id))
          .return_fields(*return_fields)
          .sort_by("vector_score")
          .paging(0, k)
@@ -94,11 +94,7 @@ def search_redis(
     params_dict = {"vector": np.array(embedded_query).astype(dtype=np.float32).tobytes()}
 
     # perform vector search
-    results = redis_client.ft(index_name).search(query, params_dict)
-    if print_results:
-        for i, article in enumerate(results.docs):
-            score = 1 - float(article.vector_score)
-            print(f"{i}. {article.title} (Score: {round(score ,3) })")
+    results = client.ft(index_name).search(query, params_dict)
     return results.docs
 
 
@@ -118,48 +114,72 @@ def get_redis_client(host=HOST, port=PORT, password=PASSWORD):
     return redis_client
 
 
-def _record_embedding(client, user_id, msg_id, 
-                      message, message_embedding,
+def _record_embedding(client, 
+                      user_id, 
+                      message, 
+                      message_embedding,
                       prefix=PREFIX):
     message_embedding = np.array(message_embedding, dtype=np.float32).tobytes()
-    key = f"{prefix}:<{user_id}><{msg_id}>"
-    mapping = {"user_id": str(user_id),
-               "message_id": str(msg_id),
+    timestamp = datetime.now().timestamp()
+    msg_hash = uuid4().hex
+    key = f"{prefix}:<{user_id}><{msg_hash}>"
+    timestamp = datetime.now().timestamp()
+    mapping = {"user_id": int(user_id),
+               #"message_id": int(msg_id),
                "message": message, 
-               "message_embedding": message_embedding}
+               "message_embedding": message_embedding,
+               "timestamp": float(timestamp),}
     client.hset(key, mapping = mapping)
+    return key, msg_hash
+
+
+def _update_embedding(client,
+                      user_id,
+                      message_id,
+                      message,
+                      message_embedding,
+                      prefix=PREFIX):
+    message_embedding = np.array(message_embedding, dtype=np.float32).tobytes()
+    key = f"{prefix}:<{user_id}><{key_id}>"
+    client.hset(key, mapping={"message": message, "message_embedding": message_embedding})
+
+
+def _update_message_id(client, 
+                       #user_id, 
+                       key,
+                       message_id,  
+                       #prefix=PREFIX
+                       ):
+    #key = f"{prefix}:<{user_id}><{key_id}>"
+    client.hset(key, mapping={"message_id": int(message_id)})
 
 
 def _record(client, user_id, msg_id, _type, value):
     client.set(f"user_id:<{user_id}>msg_id:<{msg_id}>:{_type}", value)
 
 
-def save_message(client, user_id, message_id, message_text):
+def save_embedding(client, user_id, message_text, embedding):
+    return _record_embedding(client, user_id, message_text, embedding)
+
+
+def update_embedding(client, user_id, message_id, message_text, embedding):
+    return _update_embedding(client, user_id, message_id, message_text, embedding)
+
+
+def update_message_id(client, key, message_id):
+    _update_message_id(client, key, message_id)
+
+
+def save_message(client, user_id, message_id, message_text, embedding):
     # Add the message to the cache
     _record(client, user_id, message_id, "text", message_text)
     _record(client, user_id, message_id, "time", datetime.now().timestamp())
-
-    # embed the message
-    try:
-        embedding = embed_text(message_text)
-        _record_embedding(client, user_id, message_id, message_text, embedding)
-    except:
-        print ("Embedding failed for message: ", message_text)
-        print ("This is most likely the API's fault.")
     
-
 
 def update_message(client, user_id, message_id, message_text):
     # Update the message in the cache
     _record(client, user_id, message_id, "text", message_text)
-    # embed the message
-    try:
-        embedding = embed_text(message_text)
-        _record_embedding(client, user_id, message_id, message_text, embedding)
-    except:
-        print ("Embedding failed for message: ", message_text)
-        print ("This is most likely the API's fault.")
-    
+
 
 def wait_for_approval(client, chat_id, message_id):
     client.set(f"appr:<{chat_id}>:<{message_id}>", datetime.now().timestamp())

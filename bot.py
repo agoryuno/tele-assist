@@ -1,6 +1,7 @@
 import os
 import configparser
 import asyncio
+import re
 
 from datetime import datetime
 
@@ -18,6 +19,7 @@ from _openai import clean_audio_cache, chatgpt_get_response
 from utils import get_config, _
 from voice_notes import inline_button, process_voice
 from cache import get_redis_client, create_index
+from search import search_query
 
 
 config = get_config()
@@ -153,6 +155,15 @@ async def start_gpt_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start_gpt(update, context)
 
 
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    m = re.match(r"^/.+?(\s.*|)$", update.message.text)
+    if m:
+        query = m.group(1).strip()
+        if len(query) > 0:
+            results = await search_query(update.effective_user.id, query)
+            print (results)
+
+
 async def setup_commands(app):
     await app.bot.set_my_commands([
         ('startgpt', 'Starts a conversation with ChatGPT'),
@@ -182,6 +193,8 @@ if __name__ == '__main__':
 
     start_handler = CommandHandler("start", start)
 
+    search_handler = CommandHandler("search", search_command)
+
     endgpt_handler = CommandHandler("endgpt", end_gpt)
     startgpt_handler = CommandHandler("startgpt", start_gpt)
     stopgpt_handler = MessageHandler(filters.Regex(r"^\<Stop ChatGPT\>$"), end_gpt)
@@ -189,6 +202,9 @@ if __name__ == '__main__':
     gptmessage_handler = MessageHandler(filters.TEXT, chat_gpt)
 
     application.add_handler(start_handler)
+
+    application.add_handler(search_handler)
+
     application.add_handler(endgpt_handler)
     application.add_handler(stopgpt_handler)
     application.add_handler(startgpt_handler)

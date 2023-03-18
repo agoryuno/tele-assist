@@ -1,4 +1,5 @@
 from io import BytesIO
+import time
 
 from telegram import Update, InlineKeyboardMarkup
 from telegram import InlineKeyboardButton
@@ -6,11 +7,11 @@ from telegram.ext import ContextTypes, CallbackContext
 from telegram.error import TimedOut, BadRequest
 
 from _openai import make_completion, transcribe_audio
-from _openai import chatgpt_get_response
+from _openai import chatgpt_get_response, embed_text
 
 from utils import get_config, _
 from cache import save_message, update_message, get_redis_client
-from cache import wait_for_approval
+from cache import save_embedding, update_embedding, update_message_id
 from timer import add_timer
 
 
@@ -47,7 +48,11 @@ async def inline_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         comp = gpt_correct_template(text_msg)
         correction = chatgpt_get_response(comp)
         
-        print ("Correction", update.effective_user.id)
+        embedding = await embed_message(correction)
+
+        update_embedding(get_redis_client(),
+                         update.effective_user.id,)
+
         update_message(get_redis_client(),
             update.effective_chat.id, 
             query.message.message_id, 
@@ -81,8 +86,16 @@ async def remove_approve_buttons(context: CallbackContext):
         pass
 
 
+async def embed_message(message_text, pause=2):
+    while True:
+        try:
+            return embed_text(message_text)
+        except:
+            time.sleep(pause)
+
 
 async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    client = get_redis_client()
     min_text_len = MIN_TEXT_LEN
     file_id = update.message.voice.file_id
     print ("Voice message", update.effective_user.id)
@@ -107,12 +120,27 @@ async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = None
     if len(result) >= min_text_len:
         reply_markup = make_correct_keyboard()
-        
+    
+    embedding = await embed_message(result)
+    key, _ = save_embedding(client,
+                   update.effective_user.id,
+                   result,
+                   embedding)
 
-    msg = await context.bot.send_message(chat_id=update.effective_chat.id,
+    msg = None
+    for _ in range(30):
+        try:
+            msg = await context.bot.send_message(chat_id=update.effective_chat.id,
                                    text=f'"{result}"',
                                    reply_markup=reply_markup,)
-    
+            break
+        except TimedOut:
+            time.sleep(2)
+            continue
+
+    if not msg:
+        print(f"Failed to send to chat {update.effective_chat.id}, message: {result}")
+
     if reply_markup is not None:
         add_timer(update.effective_chat.id,
                   update.effective_user.id,
@@ -121,14 +149,19 @@ async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                   when=APPROVE_TIMEOUT,
                   data={"message_id": msg.id,
                         "chat_id": update.effective_chat.id,
-                        "user_id": update.effective_user.id}
+                        "user_id": update.effective_user.id,
+                        }
                   )
     
     if msg is not None:
-        save_message(get_redis_client(), 
+        save_message(client, 
                      update.effective_chat.id, 
                      msg.message_id, 
-                     result)
+                     result,
+                     embedding)
+        update_message_id(client,
+                          key,
+                          msg.message_id)
     
     await context.bot.delete_message(chat_id=update.effective_chat.id,
                                message_id=update.message.message_id)
