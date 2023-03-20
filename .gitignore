@@ -4,3 +4,5 @@ __pycache__/*
 redis/redis.conf
 .gitignore
 notebooks/*
+search_ai/full_samples.pkl
+search_ai/search_model.ckpt
