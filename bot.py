@@ -1,25 +1,21 @@
 import os
-import configparser
-import asyncio
 import re
 
-from datetime import datetime
 
 import logging
 
-from telegram import Update, InlineKeyboardMarkup
-from telegram import InlineKeyboardButton, KeyboardButton, ReplyKeyboardMarkup
+from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from telegram.ext import filters, MessageHandler, PicklePersistence
-from telegram.ext import ConversationHandler, CallbackQueryHandler
+from telegram.ext import CallbackQueryHandler
 
-from _openai import make_completion
-from _openai import clean_audio_cache, chatgpt_get_response
+from _openai import clean_audio_cache
 
 from utils import get_config, _
 from voice_notes import inline_button, process_voice
 from cache import get_redis_client, create_index
 from search import search_query
+from chatgpt import get_start_gpt_kb, start_gpt, chat_gpt, end_gpt
 
 
 config = get_config()
@@ -28,7 +24,7 @@ PERSIST_FILE = config["MAIN"]["PERSIST_FILE"]
 
 BOT_TOKEN = config["MAIN"]["BOT_TOKEN"]
 
-WAITING, END = 1, 2
+
 
 MIN_TEXT_LEN = 150
 
@@ -39,12 +35,6 @@ logging.basicConfig(
 )
 
 
-def refresh_ui(context):
-    if not context.user_data.get("chat_gpt", False):
-        return get_start_gpt_kb()
-    return get_stop_gpt_kb()
-
-
 def reset_context(context):
     context.user_data["chat_gpt"] = False
     context.user_data["gpt_role"] = None
@@ -52,24 +42,6 @@ def reset_context(context):
     del context.user_data["chat_gpt"]
     del context.user_data["gpt_role"]
     del context.user_data["gpt_context"]
-
-
-def get_stop_gpt_kb():
-    keyboard = [
-        [
-            KeyboardButton("<Stop ChatGPT>"),
-        ],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-
-def get_start_gpt_kb():
-    keyboard = [
-        [
-            KeyboardButton("<Start ChatGPT>"),
-        ],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -88,66 +60,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                           "the button below."))
     await context.bot.send_message(chat_id=update.effective_chat.id,
                                    text=_("There's also no need to type anything (unless you "
-                                   "want to). You can send me voice notes and I will transcribe "
+                                   "want to). You can send me voice messages and I will transcribe "
                                    "them for you."))
-
-
-async def start_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get("chat_gpt"):
-        await context.bot.send_message(chat_id=update.effective_chat.id, 
-                                       text=_("You are already in conversation "
-                                              "with ChatGPT."),
-                                       reply_markup=refresh_ui(context),
-                                       )
-        return WAITING
-
-    context.user_data["chat_gpt"] = True
-
-    reply_markup = get_stop_gpt_kb()
-    await context.bot.send_message(chat_id=update.effective_chat.id,
-                                   text=_("You are now in conversation with "
-                                             "ChatGPT."),
-                                   reply_markup=reply_markup)
-    return WAITING
-
-
-async def end_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get("chat_gpt", False):
-        await context.bot.send_message(chat_id=update.effective_chat.id,
-                                       text=_("You are not in conversation with "
-                                               "ChatGPT."),
-                                       reply_markup=refresh_ui(context),
-                                       )
-        return
-    reply_markup = get_start_gpt_kb()
-    await context.bot.send_message(chat_id=update.effective_chat.id,
-                                   text=_("Conversation with ChatGPT ended."),
-                                   reply_markup=reply_markup
-                                  )
-    return ConversationHandler.END
-
-
-async def gpt_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, 
-                                   text=_(f"Unknown command:\n {update.message.text}"),
-                                   reply_markup=refresh_ui(context),
-                                   )
-    return WAITING
-
-
-async def chat_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get("chat_gpt", False):
-        return ConversationHandler.END
-    
-    reply_markup = get_stop_gpt_kb()
-    msg = make_completion(update.message.text, 
-                          context.user_data.get("gpt_role", None), 
-                          context.user_data.get("gpt_context", None))
-    response_txt = chatgpt_get_response(msg)
-    await context.bot.send_message(chat_id=update.effective_chat.id, 
-                                   text=response_txt,
-                                   reply_markup=reply_markup)
-    return WAITING
 
 
 async def gpt_role(update: Update, context: ContextTypes.DEFAULT_TYPE):

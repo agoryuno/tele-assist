@@ -188,4 +188,11 @@ def wait_for_approval(client, chat_id, message_id):
 def remove_approval(client, chat_id, message_id):
     client.delete(f"appr:<{chat_id}>:<{message_id}>")
 
+
+def save_user_var(client, user_id, var_name, value):
+    client.set(f"user_id:<{user_id}>var:<{var_name}>", value)
+
+
+def get_user_var(client, user_id, var_name):
+    return client.get(f"user_id:<{user_id}>var:<{var_name}>")
     
