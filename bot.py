@@ -83,6 +83,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                    text=_("Hi! I am a personal assitant bot. I "
                                    "keep records for you and help you interact "
                                    "with the world through AIs."), reply_markup=reply_markup)
+    await context.bot.send_message(chat_id=update.effective_chat.id,
+                                   text=_("You can start a conversation with ChatGPT using "
+                                          "the button below."))
+    await context.bot.send_message(chat_id=update.effective_chat.id,
+                                   text=_("There's also no need to type anything (unless you "
+                                   "want to). You can send me voice notes and I will transcribe "
+                                   "them for you."))
 
 
 async def start_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE):
