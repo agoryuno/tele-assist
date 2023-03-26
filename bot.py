@@ -64,18 +64,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                    "them for you."))
 
 
-async def gpt_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["gpt_role"] = update.message.text
-    await context.bot.send_message(chat_id=update.effective_chat.id, 
-                                   text=_(f"Chat GPT role set to:\n {update.message.text}"))
-
-
-async def start_gpt_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.delete_message(chat_id=update.effective_chat.id, 
-                         message_id=update.effective_message.message_id)
-    await start_gpt(update, context)
-
-
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     m = re.match(r"^/.+?(\s.*|)$", update.message.text)
     if m:
