@@ -187,3 +187,5 @@ def wait_for_approval(client, chat_id, message_id):
 
 def remove_approval(client, chat_id, message_id):
     client.delete(f"appr:<{chat_id}>:<{message_id}>")
+
+    

@@ -6,7 +6,8 @@ from cache import get_redis_client, embed_text, search_redis
 async def search_query(
         user_id: Union[int, str],
         user_query: str,
-        pause: int = 2):
+        pause: int = 2,
+        ):
     redis_client = get_redis_client()
     # embed the user query
     while True:
